@@ -1,0 +1,6 @@
+1. What was the average price per gallon in 2017?
+2. What percentage of operating expenses was spent on fuel in 2016?
+3. Was fuel cheaper in 2016 or 2017?
+4. What was the operating income in 2018?
+5. Compare fuel efficiency (gallons per mile) across 2016, 2017, and 2018.
+6. Did average daily aircraft utilization improve from 2016 to 2018?
