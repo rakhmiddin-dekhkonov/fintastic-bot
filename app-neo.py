@@ -22,34 +22,53 @@ driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
 # ---- SYMBOLIC ANALYSIS ----
 def run_symbolic_analysis(prompt):
-    match = re.search(r"percentage change in (.*?) from (\d{4}) to (\d{4})", prompt.lower())
-    if not match:
-        return None, None
+    prompt_lower = prompt.lower()
+    years = re.findall(r"\b(20\d{2})\b", prompt)
+    if len(years) < 2:
+        return "❌ Could not extract two valid years from the question.", ""
 
-    metric_keyword, year1, year2 = match.groups()
-    metric_keyword = metric_keyword.strip()
+    year1, year2 = sorted(years)[:2]
+    metric_keywords = ["fuel", "revenue", "cost", "utilization", "income", "expense", "price", "load", "gallons"]
+
+    found_metric = None
+    for m in metric_keywords:
+        if m in prompt_lower:
+            found_metric = m
+            break
+
+    if not found_metric:
+        return "❌ Could not identify a target metric in the prompt.", ""
+
+    metric_aliases = [
+        found_metric,
+        f"{found_metric} cost",
+        f"{found_metric} expense",
+        f"average {found_metric}",
+    ]
 
     with driver.session() as session:
+        clauses = " OR ".join([f'toLower(m.name) CONTAINS "{alias}"' for alias in metric_aliases])
         query = f"""
         MATCH (y:Year)-[:HAS_METRIC]->(m)-[:HAS_VALUE]->(v)
-        WHERE toLower(m.name) CONTAINS $metric AND y.value IN [$year1, $year2]
+        WHERE ({clauses}) AND y.value IN [$year1, $year2]
         RETURN y.value AS year, m.name AS metric, v.amount AS value
         """
-        records = session.run(query, metric=metric_keyword, year1=year1, year2=year2)
-        values = {r["year"]: r["value"] for r in records}
+        result = session.run(query, year1=year1, year2=year2)
+        values = {r["year"]: r["value"] for r in result}
 
     if year1 not in values or year2 not in values:
-        return "❌ Required data not found in graph.", ""
+        return f"❌ Data missing for years: {year1}, {year2}. Found only: {list(values.keys())}", ""
 
-    val1 = values[year1]
-    val2 = values[year2]
     try:
+        val1 = values[year1]
+        val2 = values[year2]
         change = ((val2 - val1) / val1) * 100
-        explanation = f"{metric_keyword.title()} in {year1} = {val1}\n{metric_keyword.title()} in {year2} = {val2}\nPercent Change = (({val2} - {val1}) / {val1}) * 100 = {change:.2f}%"
-        graph_data = f"[{year1}] {metric_keyword.title()} → {val1}\n[{year2}] {metric_keyword.title()} → {val2}"
+        explanation = f"{found_metric.title()} in {year1} = {val1}\n{found_metric.title()} in {year2} = {val2}\nPercent Change = (({val2} - {val1}) / {val1}) * 100 = {change:.2f}%"
+        graph_data = f"[{year1}] {found_metric.title()} → {val1}\n[{year2}] {found_metric.title()} → {val2}"
         return explanation, graph_data
     except ZeroDivisionError:
         return "❌ Cannot compute percentage change due to division by zero.", ""
+
 
 # ---- DEFAULT SUBGRAPH RETRIEVAL ----
 def get_relevant_subgraph(prompt: str) -> str:
